@@ -31,6 +31,74 @@ namespace
 // We use a midpoint RT priority to allow maximum flexibility to users
 int const kSchedPriority = 50;
 
+/**
+ * @brief A utility class for measuring timing statistics of function calls in real-time control loops.
+ *
+ * This class provides functionality to wrap controller manager functions (read, update, write)
+ * and collect timing statistics including execution duration and period between calls.
+ * It's designed for use in real-time control systems where performance monitoring is critical.
+ */
+class FunctionCallStats
+{
+public:
+  FunctionCallStats()
+  : previous_time_{0, 0}, measured_period_{0, 0}, measured_duration_{0, 0} {}
+
+  /**
+   * @brief Creates a wrapper function that measures timing statistics around the provided function.
+   *
+   * This template method wraps any function that matches the controller manager signature
+   * (const rclcpp::Time&, const rclcpp::Duration&) and automatically measures:
+   * - Execution duration: time taken to execute the wrapped function
+   * - Call period: time elapsed between consecutive calls to the wrapper
+   *
+   * @tparam Func The type of the function to be wrapped
+   * @param cm Shared pointer to the controller manager (used for clock access)
+   * @param func The function to wrap and measure
+   * @return A lambda function that can be called with the same signature as the original function
+   *
+   * @note The wrapper uses the controller manager's trigger clock for consistent timing measurements.
+   * @note The first call will have a period of 0 since there's no previous call to compare against.
+   */
+  template<typename Func>
+  auto create_wrapper(std::shared_ptr<controller_manager::ControllerManager> cm, Func func)
+  {
+    return [this, cm, func](const rclcpp::Time& time, const rclcpp::Duration& period)
+    {
+      auto const start_time = cm->get_trigger_clock()->now();
+
+      // Call the actual function (read, update, or write)
+      func(time, period);
+
+      auto const end_time = cm->get_trigger_clock()->now();
+      measured_duration_ = end_time - start_time;
+
+      // Calculate the measured period
+      if (previous_time_.nanoseconds() == 0)
+      {
+        // If this is the first call, we cannot calculate a period
+        previous_time_ = start_time;
+        measured_period_ = rclcpp::Duration(0, 0);
+      }
+      else
+      {
+        measured_period_ = start_time - previous_time_;
+      }
+      // Update the previous time
+      previous_time_ = time;
+    };
+  }
+
+  rclcpp::Time get_call_time() const { return previous_time_; }
+  rclcpp::Duration get_period() const { return measured_period_; }
+  rclcpp::Duration get_duration() const { return measured_duration_; }
+
+private:
+  rclcpp::Time previous_time_;  ///< Timestamp of the previous function call start
+  rclcpp::Duration measured_period_;  ///< Time between consecutive calls
+  rclcpp::Duration measured_duration_;  ///< Execution time of the last function call
+};
+
 }  // namespace
 
 int main(int argc, char ** argv)
@@ -131,6 +199,27 @@ int main(int argc, char ** argv)
 
       std::chrono::steady_clock::time_point next_iteration_time{std::chrono::steady_clock::now()};
 
+
+      // Wrap the controller manager functions to measure their execution time
+      FunctionCallStats read_stats;
+      FunctionCallStats update_stats;
+      FunctionCallStats write_stats;
+
+      auto read_wrapper = read_stats.create_wrapper(
+        cm, [&cm](const rclcpp::Time& time, const rclcpp::Duration& period) {
+          cm->read(time, period);
+      });
+
+      auto update_wrapper = update_stats.create_wrapper(
+        cm, [&cm](const rclcpp::Time& time, const rclcpp::Duration& period) {
+          cm->update(time, period);
+      });
+
+      auto write_wrapper = write_stats.create_wrapper(
+        cm, [&cm](const rclcpp::Time& time, const rclcpp::Duration& period) {
+          cm->write(time, period);
+      });
+
       while (rclcpp::ok())
       {
         // calculate measured period
@@ -138,10 +227,10 @@ int main(int argc, char ** argv)
         auto const measured_period = current_time - previous_time;
         previous_time = current_time;
 
-        // execute update loop
-        cm->read(cm->get_trigger_clock()->now(), measured_period);
-        cm->update(cm->get_trigger_clock()->now(), measured_period);
-        cm->write(cm->get_trigger_clock()->now(), measured_period);
+        // execute update loop with wrapped functions
+        read_wrapper(cm->get_trigger_clock()->now(), measured_period);
+        update_wrapper(cm->get_trigger_clock()->now(), measured_period);
+        write_wrapper(cm->get_trigger_clock()->now(), measured_period);
 
         // wait until we hit the end of the period
         if (use_sim_time)
