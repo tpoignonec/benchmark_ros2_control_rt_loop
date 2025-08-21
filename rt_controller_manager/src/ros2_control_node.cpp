@@ -21,6 +21,10 @@
 #include "controller_manager/controller_manager.hpp"
 #include "rclcpp/executors.hpp"
 #include "realtime_tools/realtime_helpers.hpp"
+#include "realtime_tools/realtime_publisher.hpp"
+
+#include "rt_diagnostics_msgs/msg/call_stats.hpp"
+#include "rt_diagnostics_msgs/msg/call_stats_array.hpp"
 
 using namespace std::chrono_literals;
 
@@ -92,6 +96,23 @@ public:
   rclcpp::Time get_call_time() const { return previous_time_; }
   rclcpp::Duration get_period() const { return measured_period_; }
   rclcpp::Duration get_duration() const { return measured_duration_; }
+
+  /**
+   * @brief Converts the collected statistics into a CallStats message.
+   *
+   * This method populates a CallStats message with the timing statistics collected
+   * during the function calls.
+   *
+   * @return A populated rt_diagnostics_msgs::msg::CallStats message
+   */
+  rt_diagnostics_msgs::msg::CallStats to_call_stats_msg() const
+  {
+    rt_diagnostics_msgs::msg::CallStats stats_msg;
+    stats_msg.call_time = previous_time_;
+    stats_msg.time_since_last = measured_period_;
+    stats_msg.call_duration = measured_duration_;
+    return stats_msg;
+  }
 
 private:
   rclcpp::Time previous_time_;  ///< Timestamp of the previous function call start
@@ -220,6 +241,18 @@ int main(int argc, char ** argv)
           cm->write(time, period);
       });
 
+      // Add RT publisher for RW statistics
+      auto rw_stats_publisher = cm->create_publisher<rt_diagnostics_msgs::msg::CallStatsArray>(
+        "~/call_stats", rclcpp::SystemDefaultsQoS());
+      auto realtime_rw_stats_publisher = std::make_unique<realtime_tools::RealtimePublisher<
+        rt_diagnostics_msgs::msg::CallStatsArray>>(rw_stats_publisher);
+
+      rt_diagnostics_msgs::msg::CallStatsArray rw_stats_msg;
+      rw_stats_msg.function_names = {
+        "read", "update", "write"
+      };
+      rw_stats_msg.stats.resize(3);
+
       while (rclcpp::ok())
       {
         // calculate measured period
@@ -231,6 +264,24 @@ int main(int argc, char ** argv)
         read_wrapper(cm->get_trigger_clock()->now(), measured_period);
         update_wrapper(cm->get_trigger_clock()->now(), measured_period);
         write_wrapper(cm->get_trigger_clock()->now(), measured_period);
+
+        // collect statistics
+        rw_stats_msg.header.stamp = current_time;
+        rw_stats_msg.stats[0] = read_stats.to_call_stats_msg();
+        rw_stats_msg.stats[1] = update_stats.to_call_stats_msg();
+        rw_stats_msg.stats[2] = write_stats.to_call_stats_msg();
+
+        // publish statistics if the publisher is ready
+        if (realtime_rw_stats_publisher->trylock())
+        {
+          realtime_rw_stats_publisher->msg_ = rw_stats_msg;
+          realtime_rw_stats_publisher->unlockAndPublish();
+        }
+        else
+        {
+          RCLCPP_WARN(
+            cm->get_logger(), "Could not publish call statistics, publisher is not ready.");
+        }
 
         // wait until we hit the end of the period
         if (use_sim_time)

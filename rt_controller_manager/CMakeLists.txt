@@ -9,6 +9,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 
 set(DEPENDENCIES
+  rt_diagnostics_msgs
   controller_manager
   pluginlib
   rclcpp
