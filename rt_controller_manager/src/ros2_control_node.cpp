@@ -22,6 +22,8 @@
 #include "rclcpp/executors.hpp"
 #include "realtime_tools/realtime_helpers.hpp"
 
+#include "rt_controller_manager/ros2_control_node-tp.h"
+
 using namespace std::chrono_literals;
 
 namespace
@@ -131,6 +133,27 @@ int main(int argc, char ** argv)
 
       std::chrono::steady_clock::time_point next_iteration_time{std::chrono::steady_clock::now()};
 
+      auto cm_read = [&cm](const rclcpp::Time & time, const rclcpp::Duration & period)
+      {
+        lttng_ust_tracepoint(ros2_control_node, func_start, "ControllerManager::read");
+        cm->read(time, period);
+        lttng_ust_tracepoint(ros2_control_node, func_end, "ControllerManager::read");
+      };
+
+      auto cm_update = [&cm](const rclcpp::Time & time, const rclcpp::Duration & period)
+      {
+        lttng_ust_tracepoint(ros2_control_node, func_start, "ControllerManager::update");
+        cm->update(time, period);
+        lttng_ust_tracepoint(ros2_control_node, func_end, "ControllerManager::update");
+      };
+
+      auto cm_write = [&cm](const rclcpp::Time & time, const rclcpp::Duration & period)
+      {
+        lttng_ust_tracepoint(ros2_control_node, func_start, "ControllerManager::write");
+        cm->write(time, period);
+        lttng_ust_tracepoint(ros2_control_node, func_end, "ControllerManager::write");
+      };
+
       while (rclcpp::ok())
       {
         // calculate measured period
@@ -139,9 +162,9 @@ int main(int argc, char ** argv)
         previous_time = current_time;
 
         // execute update loop
-        cm->read(cm->get_trigger_clock()->now(), measured_period);
-        cm->update(cm->get_trigger_clock()->now(), measured_period);
-        cm->write(cm->get_trigger_clock()->now(), measured_period);
+        cm_read(cm->get_trigger_clock()->now(), measured_period);
+        cm_update(cm->get_trigger_clock()->now(), measured_period);
+        cm_write(cm->get_trigger_clock()->now(), measured_period);
 
         // wait until we hit the end of the period
         if (use_sim_time)
