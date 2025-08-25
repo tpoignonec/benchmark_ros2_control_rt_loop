@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+    <xacro:macro
+        name="mock_hardware"
+        params="prefix">
+        <ros2_control name="${prefix}" type="system">
+            <hardware>
+                <plugin>mock_components/GenericSystem</plugin>
+            </hardware>
+
+            <!-- Configure GPIOs -->
+            <gpio name="gpio">
+                <state_interface name="input_0"/>
+                <state_interface name="input_1"/>
+                <state_interface name="input_2"/>
+                <state_interface name="input_3"/>
+
+                <command_interface name="output_0"/>
+                <command_interface name="output_1"/>
+                <command_interface name="output_2"/>
+                <command_interface name="output_3"/>
+            </gpio>
+        </ros2_control>
+    </xacro:macro>
+</robot>

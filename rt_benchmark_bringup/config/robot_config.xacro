@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="fd">
+
+    <!-- Import r2c description file -->
+    <xacro:include filename="$(find rt_benchmark_bringup)/config/hardware.ros2_control.xacro" />
+
+    <!-- Add world frame -->
+    <link name="world"/>
+
+    <!-- Import and setup ros2_control description -->
+    <xacro:mock_hardware
+        prefix="hw"
+    />
+</robot>
