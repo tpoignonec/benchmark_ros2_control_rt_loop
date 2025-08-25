@@ -9,29 +9,31 @@
 
 #include <lttng/tracepoint.h>
 
-// Function start tracepoint: func_start
 LTTNG_UST_TRACEPOINT_EVENT(
     TRACEPOINT_PROVIDER,
-    func_start,
+    function_call,
     TP_ARGS(
-        const char*, func_name
+        const char*, func_name,
+        uint64_t, timestamp_ns,
+        uint64_t, duration_ns
     ),
     TP_FIELDS(
-        ctf_string(func, func_name)
+        lttng_ust_field_string(function_name, func_name)
+        lttng_ust_field_integer(uint64_t, timestamp, timestamp_ns)
+        lttng_ust_field_integer(uint64_t, duration, duration_ns)
     )
 )
 
-// End tracepoint: func_end
-LTTNG_UST_TRACEPOINT_EVENT(
-    TRACEPOINT_PROVIDER,
-    func_end,
-    TP_ARGS(
-        const char*, func_name
-    ),
-    TP_FIELDS(
-        ctf_string(func, func_name)
-    )
-)
+// Macro to trace function calls with timing
+#define TRACE_FUNCTION_CALL(func_name, func_call, clock) \
+{ \
+    auto tmp_call_start = (clock)->now(); \
+    func_call; \
+    lttng_ust_tracepoint( \
+        ros2_control_node, function_call, func_name, \
+        static_cast<uint64_t>(tmp_call_start.nanoseconds()), \
+        static_cast<uint64_t>(((clock)->now() - tmp_call_start).nanoseconds())); \
+}
 
 #endif // RT_CONTROLLER_MANAGER_ROS2_CONTROL_NODE_TP_HPP
 
